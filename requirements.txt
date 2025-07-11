@@ -1,0 +1,6 @@
+aiogram==3.5.0
+gspread
+oauth2client
+PyDrive
+openpyxl
+requests
