@@ -1,7 +1,7 @@
 services:
   - type: web
-    name: telegram-bot
+    name: tg_bot1
     env: python
-    pythonVersion: 3.11.9
+    pythonVersion: "3.11.9"
     buildCommand: "pip install -r requirements.txt"
-    startCommand: "python main.py"
+    startCommand: "python bot.py"
