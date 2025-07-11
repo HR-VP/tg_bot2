@@ -1,11 +1,8 @@
 import asyncio
 import datetime
 import os
-import gspread
 import requests
-from oauth2client.service_account import ServiceAccountCredentials
-from pydrive.auth import GoogleAuth
-from pydrive.drive import GoogleDrive
+import json
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.enums import ParseMode
@@ -15,8 +12,12 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.client.default import DefaultBotProperties
+
+from google.oauth2.service_account import Credentials
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaFileUpload
+import gspread
 from openpyxl import Workbook, load_workbook
-import json
 
 # === НАСТРОЙКИ ===
 API_TOKEN = os.getenv("BOT_TOKEN")
@@ -25,7 +26,6 @@ GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID")
 SHEET_NAME = os.getenv("SHEET_NAME", "Лист1")
 DRIVE_FOLDER_ID = os.getenv("DRIVE_FOLDER_ID")
 
-# Сохраняем JSON в файл
 CREDENTIALS_FILE = "service_account.json"
 with open(CREDENTIALS_FILE, "w") as f:
     f.write(os.getenv("GOOGLE_CREDENTIALS_JSON"))
@@ -53,15 +53,16 @@ def consent_keyboard():
     ])
 
 def authorize_google():
-    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-    creds = ServiceAccountCredentials.from_json_keyfile_name(CREDENTIALS_FILE, scope)
-    gauth = GoogleAuth()
-    gauth.credentials = creds
-    drive = GoogleDrive(gauth)
+    scopes = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive"
+    ]
+    creds = Credentials.from_service_account_file(CREDENTIALS_FILE, scopes=scopes)
     client = gspread.authorize(creds)
-    return drive, client
+    drive_service = build('drive', 'v3', credentials=creds)
+    return drive_service, client
 
-def upload_resume_to_drive(drive, file_id, fio):
+def upload_resume_to_drive(drive_service, file_id, fio):
     bot_file = asyncio.run(bot.get_file(file_id))
     file_url = f"https://api.telegram.org/file/bot{API_TOKEN}/{bot_file.file_path}"
     ext = os.path.splitext(bot_file.file_path)[1] or ".pdf"
@@ -72,18 +73,23 @@ def upload_resume_to_drive(drive, file_id, fio):
     with open(local_path, "wb") as f:
         f.write(response.content)
 
-    gfile = drive.CreateFile({
-        'title': safe_filename,
-        'parents': [{'id': DRIVE_FOLDER_ID}]
-    })
-    gfile.SetContentFile(local_path)
-    gfile.Upload()
+    file_metadata = {
+        'name': safe_filename,
+        'parents': [DRIVE_FOLDER_ID]
+    }
+    media = MediaFileUpload(local_path, resumable=True)
+    uploaded_file = drive_service.files().create(
+        body=file_metadata,
+        media_body=media,
+        fields='id'
+    ).execute()
+
     os.remove(local_path)
 
-    return f"https://drive.google.com/file/d/{gfile['id']}/view?usp=sharing"
+    return f"https://drive.google.com/file/d/{uploaded_file['id']}/view?usp=sharing"
 
 def write_to_google_sheets(fio, positions, contacts, resume_link, timestamp):
-    drive, client = authorize_google()
+    drive_service, client = authorize_google()
     sheet = client.open_by_key(GOOGLE_SHEET_ID).worksheet(SHEET_NAME)
     sheet.append_row([timestamp, fio, positions, contacts, resume_link])
     print("✅ Заявка записана в Google Таблицу")
@@ -104,16 +110,10 @@ def write_to_excel(fio, positions, contacts, resume_link, timestamp):
 async def start(message: Message, state: FSMContext):
     await state.set_state(Form.fio)
     await message.answer(
-        "👋 Здравствуйте!
-"
-        "Я автоматический бот, предназначенный для 📥 сбора резерва соискателей в компанию «Все Пороги».
-
-"
-        "🤖 Я не умею вести диалог, поэтому, к сожалению, не смогу ответить на Ваши вопросы.
-"
-        "Но обязательно помогу Вашей кандидатуре не потеряться в потоке других резюме.
-
-"
+        "👋 Здравствуйте!\n"
+        "Я автоматический бот, предназначенный для 📥 сбора резерва соискателей в компанию «Все Пороги».\n\n"
+        "🤖 Я не умею вести диалог, поэтому, к сожалению, не смогу ответить на Ваши вопросы.\n"
+        "Но обязательно помогу Вашей кандидатуре не потеряться в потоке других резюме.\n\n"
         "📝 Для этого, пожалуйста, введите Ваше ФИО:"
     )
 
@@ -179,25 +179,18 @@ async def finalize(message: Message, state: FSMContext):
     resume_link = "не предоставлено"
     if data.get("resume"):
         try:
-            drive, _ = authorize_google()
-            resume_link = upload_resume_to_drive(drive, data["resume"], data["fio"])
+            drive_service, _ = authorize_google()
+            resume_link = upload_resume_to_drive(drive_service, data["resume"], data["fio"])
         except Exception as e:
             print("❌ Ошибка загрузки файла на Google Диск:", e)
 
     summary = (
-        f"📥 <b>Новая заявка от соискателя</b>
-
-"
-        f"👤 <b>ФИО:</b> {data.get('fio')}
-"
-        f"💼 <b>Должности:</b> {data.get('positions')}
-"
-        f"📞 <b>Контакты:</b> {data.get('contacts')}
-"
-        f"📎 <b>Резюме:</b> {resume_link}
-"
-        f"🕒 <b>Время:</b> {now}
-"
+        f"📥 <b>Новая заявка от соискателя</b>\n\n"
+        f"👤 <b>ФИО:</b> {data.get('fio')}\n"
+        f"💼 <b>Должности:</b> {data.get('positions')}\n"
+        f"📞 <b>Контакты:</b> {data.get('contacts')}\n"
+        f"📎 <b>Резюме:</b> {resume_link}\n"
+        f"🕒 <b>Время:</b> {now}\n"
         f"✅ <b>Согласие получено</b>"
     )
 
