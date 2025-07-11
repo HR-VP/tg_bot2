@@ -1,7 +1,8 @@
 aiogram==3.5.0
-pydantic-core==2.18.4 --only-binary=:all:
 gspread
 oauth2client
 PyDrive
 openpyxl
 requests
+# принудительно использовать готовую сборку pydantic-core
+pydantic-core==2.18.4 --only-binary=:all:
