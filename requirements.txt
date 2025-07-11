@@ -4,3 +4,5 @@ google-api-python-client==2.126.0
 google-auth==2.29.0
 openpyxl==3.1.2
 requests==2.32.3
+pydantic==2.5.3
+pydantic-core==2.14.6; platform_system != "Linux"
