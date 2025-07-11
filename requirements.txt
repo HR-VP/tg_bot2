@@ -5,4 +5,4 @@ PyDrive
 openpyxl
 requests
 # принудительно использовать готовую сборку pydantic-core
-pydantic-core==2.18.4 --only-binary=:all:
+pydantic-core==2.35.2 --only-binary=:all:
