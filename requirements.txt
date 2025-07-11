@@ -4,5 +4,4 @@ oauth2client
 PyDrive
 openpyxl
 requests
-# принудительно использовать готовую сборку pydantic-core
 pydantic-core==2.35.2 --only-binary=:all:
