@@ -1,4 +1,5 @@
 aiogram==3.5.0
+pydantic-core==2.18.4 --only-binary=:all:
 gspread
 oauth2client
 PyDrive
